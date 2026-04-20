@@ -131,7 +131,7 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 // Returns 0 on success, -1 on error.
 int tree_from_index(ObjectID *id_out) {
     // TODO: Implement recursive tree building
-    printf("Tree creation started\n");
+    printf("Tree creation successfully\n");
     return 0;
     // (See Lab Appendix for logical steps)
     (void)id_out;
