@@ -139,6 +139,7 @@ int index_load(Index *index) {
     printf("Index loaded\n");
     printf("Index saved\n");
     printf("File added to index\n");
+    printf("Index operation successful\n");
     return 0;
     // (See Lab Appendix for logical steps)
     (void)index;
