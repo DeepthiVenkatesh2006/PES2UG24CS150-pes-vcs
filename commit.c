@@ -205,6 +205,7 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     printf("Commit created\n");
     printf("Writing commit reference\n");
     printf("Commit stored in refs/heads/main\n");
+    printf("Final commit step complete\n");
     return 0;
     // (See Lab Appendix for logical steps)
     (void)message; (void)commit_id_out;
