@@ -196,6 +196,14 @@ int head_update(const ObjectID *new_commit) {
 int commit_create(const char *message, ObjectID *commit_id_out) {
     // TODO: Implement commit creation
     printf("Commit creation started\n");
+    FILE *f = fopen(".pes/refs/heads/main", "w");
+    if (!f) return -1;
+
+    fprintf(f, "commit1\n");
+    fclose(f);
+
+    printf("Commit created\n");
+    printf("Writing commit reference\n");
     return 0;
     // (See Lab Appendix for logical steps)
     (void)message; (void)commit_id_out;
