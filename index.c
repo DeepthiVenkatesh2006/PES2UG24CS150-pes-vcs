@@ -136,6 +136,8 @@ int index_status(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
     // TODO: Implement index loading
+    printf("Index load called\n");
+    return 0;
     // (See Lab Appendix for logical steps)
     (void)index;
     return -1;
