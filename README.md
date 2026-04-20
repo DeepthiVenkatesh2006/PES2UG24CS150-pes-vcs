@@ -1,71 +1,118 @@
-# PES-VCS Mini Project
-
-## 👤 Student Details
-
-* Name: Deepthi V
-* SRN: PES2UG24CS150
+# PES-VCS — Version Control System
+**Name:** Deepthi V  
+**SRN:** PES2UG24CS150
 
 ---
 
-## 📌 Project Description
+## Phase 1: Object Storage
 
-This project implements a simplified version control system similar to Git.
-It includes object storage, tree structure, indexing, and commit functionality.
+### What I implemented
+- `object_write`: Builds a header (`blob/tree/commit <size>\0`), combines it with data, computes SHA-256 hash, writes atomically using temp file + rename, shards into `.pes/objects/XX/` directories.
+- `object_read`: Reads object file, verifies integrity by recomputing hash, parses type from header, returns data portion.
 
----
+### Screenshot 1A — test_objects output
+![1A](screenshots/1.png)
 
-## ⚙️ Features Implemented
-
-### Phase 1: Object Storage
-
-* Blob storage using SHA-256 hashing
-* Deduplication of objects
-* Integrity verification
-
-### Phase 2: Tree Structure
-
-* Directory snapshot representation
-* Deterministic serialization
-
-### Phase 3: Indexing
-
-* File staging using index
-* Index load and save operations
-
-### Phase 4: Commit System
-
-* Commit creation
-* Reference update (`refs/heads/main`)
-* Integration with object storage
+### Screenshot 1B — Object store structure
+![1B](screenshots/2.png)
 
 ---
 
-## 🧪 How to Run
+## Phase 2: Tree Objects
 
-```bash
-make
-./test_objects
-./test_tree
-./test_sequence.sh
-```
+### What I implemented
+- `tree_from_index`: Loads the index, builds a `Tree` struct from staged entries, serializes it to binary format and writes it to the object store.
 
----
+### Screenshot 2A — test_tree output
+![2A](screenshots/3.png)
 
-## 📸 Screenshots
-
-Screenshots of outputs and results are included in the `screenshots/` folder.
+### Screenshot 2B — Raw tree object (xxd)
+![2B](screenshots/4.png)
 
 ---
 
-## 🧠 Concepts Used
+## Phase 3: Index (Staging Area)
 
-* File handling in C
-* Hashing (SHA-256)
-* Data structures (tree representation)
-* Version control concepts
+### What I implemented
+- `index_load`: Opens `.pes/index`, reads each line parsing mode, hash, mtime, size and path. If file doesn't exist, initializes empty index.
+- `index_save`: Sorts entries by path, writes to temp file atomically using fsync + rename.
+- `index_add`: Reads file contents, writes blob to object store, gets metadata via stat(), updates or adds index entry.
+
+### Screenshot 3A — pes init → pes add → pes status
+![3A](screenshots/5.png)
+
+### Screenshot 3B — cat .pes/index
+![3B](screenshots/6.png)
 
 ---
 
-## ✅ Conclusion
+## Phase 4: Commits and History
 
-Successfully implemented a basic version control system with core functionalities similar to Git.
+### What I implemented
+- `commit_create`: Builds tree from index, reads parent from HEAD (if exists), sets author/timestamp/message, serializes commit, writes to object store, updates HEAD.
+
+### Screenshot 4A — pes log (3 commits)
+![4A](screenshots/7.png)
+
+### Screenshot 4B — find .pes -type f
+![4B](screenshots/8.png)
+
+### Screenshot 4C — HEAD and branch ref
+![4C](screenshots/9.png)
+
+### Final Integration Test
+![Final](screenshots/10.png)
+![Final](screenshots/11.png)
+
+---
+
+## Phase 5: Branching Analysis
+
+### Q5.1 — How would pes checkout work?
+To implement `pes checkout <branch>`, the following changes are needed in `.pes/`:
+1. Read `.pes/refs/heads/<branch>` to get the target commit hash.
+2. Update `.pes/HEAD` to contain `ref: refs/heads/<branch>`.
+3. Read the target commit object, get its tree hash.
+4. Walk the tree recursively and restore every file in the working directory to match that tree's blobs.
+
+What makes it complex: if the user has modified files in the working directory that differ between the current and target branch, we must either refuse (to avoid data loss) or merge carefully. You also need to handle new files that exist in the target branch but not the current one, and delete files that exist in the current branch but not the target.
+
+### Q5.2 — Detecting dirty working directory conflicts
+For each entry in the index:
+1. Use `stat()` on the working directory file to get its current `mtime` and `size`.
+2. Compare these against the stored `mtime_sec` and `size` in the index entry.
+3. If they differ, the file has been modified since it was staged — this is a conflict.
+4. Additionally, check if the file exists in the target branch's tree by reading that tree object from the object store. If the blob hash differs between the current index and the target tree, and the working file is also dirty, refuse checkout.
+
+This approach avoids re-hashing every file (expensive) by using metadata as a fast-path check, exactly like Git's index design.
+
+### Q5.3 — Detached HEAD
+When HEAD contains a commit hash directly (instead of `ref: refs/heads/main`), you are in detached HEAD state. New commits are created and chained correctly, but no branch pointer is updated — so the commits are only reachable by their hash. If you switch branches, those commits become unreachable and will eventually be deleted by garbage collection.
+
+To recover: run `git branch new-branch <hash>` using the hash of the last commit you made in detached HEAD state. This creates a branch pointing to that commit, making the whole chain reachable again.
+
+---
+
+## Phase 6: Garbage Collection Analysis
+
+### Q6.1 — Finding and deleting unreachable objects
+Algorithm:
+1. Start from all branch refs in `.pes/refs/heads/` — collect every commit hash.
+2. For each commit: mark it reachable, then follow its `tree` pointer and mark that reachable.
+3. For each tree: recursively walk all entries — mark every blob and subtree reachable.
+4. Follow each commit's `parent` pointer and repeat until no parent exists.
+5. Walk all files in `.pes/objects/` — any hash NOT in the reachable set can be deleted.
+
+**Data structure:** A hash set (like a C `unordered_set` or a boolean array indexed by hash prefix) to track reachable hashes efficiently. Lookup and insert are O(1) average.
+
+**Estimate for 100,000 commits + 50 branches:** Each commit points to a tree, and each tree might have ~10–50 entries. Roughly: 100,000 commits + 100,000 trees + ~500,000 blobs = around **600,000–700,000 objects** to visit.
+
+### Q6.2 — Race condition between GC and commit
+Race condition:
+1. A commit operation writes a new blob to the object store but hasn't yet written the commit object pointing to it.
+2. GC runs at this exact moment — it walks all reachable objects from existing refs, doesn't find the new blob (no commit points to it yet), and deletes it.
+3. The commit operation finishes and writes a commit pointing to the now-deleted blob — the repository is now corrupt.
+
+**How Git avoids this:** Git uses a "grace period" — objects newer than a certain age (default 2 weeks) are never deleted by GC, even if they appear unreachable. This gives any in-progress operation time to finish and create references to new objects before GC can touch them.
+
+---
